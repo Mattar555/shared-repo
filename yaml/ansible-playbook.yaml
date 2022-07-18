@@ -1,0 +1,87 @@
+- hosts: localhost
+  vars:
+      # Define the vault credentials that will be used to authenticate to the cluster
+      is_conf: "{{ lookup('hashi_vault', 'url=https://vault-route-vault.apps.itzrosa-..p1.openshiftapps.com/ token=XXXX secret=kv/jenkins:test')}}"
+      cluster_user: "{{ lookup('hashi_vault', 'url=https://vault-route-vault.apps.itzrosa-..p1.openshiftapps.com/ token=XXXX secret=kv/cluster:username')}}"
+      cluster_password: "{{ lookup('hashi_vault', 'url=https://vault-route-vault.apps.itzrosa-..p1.openshiftapps.com/ token=XXXX secret=kv/cluster:password')}}"
+  #login to the cluster using the above credentials 
+  tasks:
+    - 
+      name: Login to OCP cluster
+      k8s_auth:
+        host: https://api.itzrosa-..p1.openshiftapps.com:6443
+        username: "{{ cluster_user }}"
+        password: "{{ cluster_password: }}"
+        validate_certs: no
+      register: k8s_auth_result
+    - 
+      # deploy a config (a yaml file) into the cluster 
+      name : Deploy config
+      k8s:
+          state: present
+          apply: yes
+          namespace: cp4i
+          host: https://api.itzrosa-..p1.openshiftapps.com:6443
+          api_key: "{{ k8s_auth_result.k8s_auth.api_key }}"
+          validate_certs: no
+          definition:
+            apiVersion: appconnect.ibm.com/v1beta1
+            kind: Configuration
+            metadata:
+              name: ansible-vault-policy
+              namespace: cp4i
+            spec:
+              contents: "{{ is_conf | b64encode }}"
+              type: odbc
+              version: 12.0.4.0-r1
+    - 
+      # deploy an integration server into the cluster (another yaml crd)
+      # this IS pulls the relevant image from the jfrog repository under spec.pod.containers.runtime.image
+      name : Deploy is
+      k8s:
+          state: present
+          apply: yes
+          namespace: cp4i
+          host: https://api.itzrosa-..p1.openshiftapps.com:6443
+          api_key: "{{ k8s_auth_result.k8s_auth.api_key }}"
+          validate_certs: no
+          definition:
+            apiVersion: appconnect.ibm.com/v1beta1
+            kind: IntegrationServer
+            metadata:
+              name: ace-jfrog
+              namespace: cp4i
+            spec:
+              pod:
+                containers:
+                  runtime:
+                    image: rangin.jfrog.io/ice-ace-docker/fortune:latest
+                    imagePullPolicy: Always
+                    resources:
+                      limits:
+                        cpu: '1'
+                        memory: 2Gi
+                      requests:
+                        cpu: '0.5'
+                        memory: 2Gi
+                imagePullSecrets: 
+                  - name: rangin-jfrog-user
+              configurations: ["ansible-vault-policy"]
+              version: 12.0.4.0-r1
+              license:
+                accept: true
+                license: L-APEH-C9NCK6
+                use: CloudPakForIntegrationNonProduction
+              useCommonServices: true
+              enableMetrics: true
+              replicas: 1
+              service:
+                endpointType: https
+              designerFlowsOperationMode: disabled
+              adminServerSecure: false
+              tracing:
+                enabled: false
+                namespace: cp4i
+              logFormat: basic
+
+
